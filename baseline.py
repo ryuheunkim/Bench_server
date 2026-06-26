@@ -2,9 +2,9 @@
 Baseline: HuggingFace Transformers — standard (non-paged) KV cache.
 
 Memory model:
-  - KV cache is a contiguous tensor per sequence, pre-allocated to max_new_tokens.
-  - All sequences in a batch are padded to the same length → memory wasted on padding.
-  - No block sharing, no prefix caching, no on-demand allocation.
+  - All sequences padded to the same length → attention matrix [B, H, L, L].
+  - KV cache is a single contiguous tensor for the whole batch; no block sharing.
+  - No prefix caching, no on-demand allocation.
 
 Compare with nanovllm_bench.py to see the effect of paged attention.
 """
@@ -15,10 +15,10 @@ import torch
 from random import randint, seed
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-MODEL_PATH = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
-NUM_SEQS    = 16     # small: standard KV cache OOMs at the scale nano-vLLM handles
-MAX_INPUT   = 256
-MAX_OUTPUT  = 128
+MODEL_PATH = os.path.expanduser("~/huggingface/Qwen3-0.6B")
+NUM_SEQS    = 32    # RTX4050 6GB limit: attention matrix [B,H,L,L] grows with B
+MAX_INPUT   = 128   # keep L small so [16,16,192,192] fp32 ≈ 144MB stays safe
+MAX_OUTPUT  = 64
 VOCAB_SIZE  = 151936  # Qwen3
 
 NVTX = torch.cuda.nvtx
@@ -48,10 +48,10 @@ def main():
 
     # ── Random inputs ─────────────────────────────────────────────────────────
     input_ids_list = [
-        [randint(0, VOCAB_SIZE - 1) for _ in range(randint(50, MAX_INPUT))]
+        [randint(0, VOCAB_SIZE - 1) for _ in range(randint(32, MAX_INPUT))]
         for _ in range(NUM_SEQS)
     ]
-    max_output_per_seq = [randint(50, MAX_OUTPUT) for _ in range(NUM_SEQS)]
+    max_output_per_seq = [randint(32, MAX_OUTPUT) for _ in range(NUM_SEQS)]
 
     # ── Warmup ────────────────────────────────────────────────────────────────
     with nvtx_range("warmup"):
@@ -61,9 +61,10 @@ def main():
     torch.cuda.synchronize()
     torch.cuda.reset_peak_memory_stats()
 
-    # ── Prepare batch (HF requires uniform length → padding) ─────────────────
-    # This padding is a core inefficiency: tokens past each sequence's real end
-    # still occupy KV cache slots.
+    # ── Prepare padded batch ──────────────────────────────────────────────────
+    # HF requires uniform sequence length → left-pad to max.
+    # This is the core inefficiency being compared: padding wastes KV slots,
+    # and the attention matrix is [B, H, L_max, L_max] for all sequences.
     with nvtx_range("prepare_batch_with_padding"):
         max_len = max(len(ids) for ids in input_ids_list)
         padded_ids = [
@@ -77,27 +78,25 @@ def main():
         input_tensor = torch.tensor(padded_ids, dtype=torch.long, device="cuda")
         mask_tensor  = torch.tensor(attn_mask,  dtype=torch.long, device="cuda")
 
-    # ── Generate ──────────────────────────────────────────────────────────────
-    # All sequences run for max(max_output_per_seq) steps regardless of whether
-    # each individual sequence has already produced enough tokens.
+    # ── Generate (full batch) ─────────────────────────────────────────────────
     max_new = max(max_output_per_seq)
     torch.cuda.synchronize()
     t_start = time.perf_counter()
 
-    with nvtx_range(f"hf_generate[batch={NUM_SEQS},max_new={max_new}]"):
+    with nvtx_range("benchmark_generate"):
         with torch.inference_mode():
-            output = model.generate(
-                input_tensor,
-                attention_mask=mask_tensor,
-                max_new_tokens=max_new,
-                do_sample=False,
-                use_cache=True,      # standard KV cache (contiguous, per-batch)
-            )
+            with nvtx_range(f"hf_generate[batch={NUM_SEQS},max_new={max_new}]"):
+                output = model.generate(
+                    input_tensor,
+                    attention_mask=mask_tensor,
+                    max_new_tokens=max_new,
+                    do_sample=False,
+                    use_cache=True,
+                )
 
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - t_start
 
-    # Output tokens = actual new tokens (excl. input)
     total_out_toks = (output.shape[1] - input_tensor.shape[1]) * NUM_SEQS
     peak_mem_gb    = torch.cuda.max_memory_allocated() / 1e9
 

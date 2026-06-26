@@ -32,6 +32,8 @@ echo " [1/2] Profiling baseline (HF Transformers, no paged attention)"
 echo "================================================================"
 $NSYS profile \
     "${COMMON_FLAGS[@]}" \
+    --capture-range=nvtx \
+    --nvtx-capture="benchmark_generate" \
     --output="$OUTDIR/baseline" \
     python "$(dirname "$0")/baseline.py"
 

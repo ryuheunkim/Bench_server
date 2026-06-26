@@ -26,10 +26,10 @@ from random import randint, seed
 sys.path.insert(0, os.path.expanduser("~/nano-vllm"))
 
 NVTX = torch.cuda.nvtx
-MODEL_PATH = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
-NUM_SEQS   = 256
-MAX_INPUT  = 1024
-MAX_OUTPUT = 1024
+MODEL_PATH = os.path.expanduser("~/huggingface/Qwen3-0.6B")
+NUM_SEQS   = 32
+MAX_INPUT  = 128
+MAX_OUTPUT = 64
 VOCAB_SIZE = 151936  # Qwen3
 
 
@@ -117,15 +117,19 @@ from nanovllm import LLM, SamplingParams
 def main():
     seed(0)
 
+    # rms_forward is recompiled once per CUDA Graph batch size (up to ~20 sizes).
+    # Default cache_size_limit=8 causes recompilation storms during graph capture.
+    torch._dynamo.config.cache_size_limit = 64
+
     with nvtx_range("llm_init"):
         llm = LLM(MODEL_PATH, enforce_eager=False, max_model_len=4096)
 
     prompt_token_ids = [
-        [randint(0, VOCAB_SIZE - 1) for _ in range(randint(100, MAX_INPUT))]
+        [randint(0, VOCAB_SIZE - 1) for _ in range(randint(32, MAX_INPUT))]
         for _ in range(NUM_SEQS)
     ]
     sampling_params = [
-        SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(100, MAX_OUTPUT))
+        SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(32, MAX_OUTPUT))
         for _ in range(NUM_SEQS)
     ]
 
