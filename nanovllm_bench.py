@@ -134,7 +134,7 @@ def main():
     ]
 
     # ── Warmup ────────────────────────────────────────────────────────────────
-    # nsys --capture-range nvtx --nvtx-capture benchmark_generate will skip this.
+    # cudaProfilerStart is called after warmup, so nsys skips this section.
     with nvtx_range("warmup"):
         llm.generate(["Benchmark: "], SamplingParams())
 
@@ -142,12 +142,15 @@ def main():
     torch.cuda.reset_peak_memory_stats()
 
     # ── Timed benchmark ───────────────────────────────────────────────────────
-    # The "benchmark_generate" NVTX range is used as the nsys capture gate.
+    # cudaProfilerStart gates nsys --capture-range=cudaProfilerApi.
+    # NVTX range is kept so the marker appears in the timeline too.
+    torch.cuda.cudart().cudaProfilerStart()
     with nvtx_range("benchmark_generate"):
         t_start = time.perf_counter()
         llm.generate(prompt_token_ids, sampling_params, use_tqdm=False)
         torch.cuda.synchronize()
         elapsed = time.perf_counter() - t_start
+    torch.cuda.cudart().cudaProfilerStop()
 
     total_tokens = sum(sp.max_tokens for sp in sampling_params)
     peak_mem_gb  = torch.cuda.max_memory_allocated() / 1e9

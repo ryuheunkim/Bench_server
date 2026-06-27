@@ -25,6 +25,8 @@ COMMON_FLAGS=(
     --cuda-memory-usage=true     # track GPU memory alloc/free over time
     --backtrace=none             # skip CPU backtraces (much faster capture)
     --force-overwrite=true
+    --capture-range=cudaProfilerApi   # gate: cudaProfilerStart/Stop in Python
+    --capture-range-end=stop          # stop collection when Stop is called
 )
 
 echo "================================================================"
@@ -32,8 +34,6 @@ echo " [1/2] Profiling baseline (HF Transformers, no paged attention)"
 echo "================================================================"
 $NSYS profile \
     "${COMMON_FLAGS[@]}" \
-    --capture-range=nvtx \
-    --nvtx-capture="benchmark_generate" \
     --output="$OUTDIR/baseline" \
     python "$(dirname "$0")/baseline.py"
 
@@ -41,12 +41,8 @@ echo ""
 echo "================================================================"
 echo " [2/2] Profiling nano-vLLM (paged attention + CUDA graphs)"
 echo "================================================================"
-# --capture-range nvtx: only capture within the named NVTX range.
-# Skips model load and warmup, so the trace focuses on actual inference.
 $NSYS profile \
     "${COMMON_FLAGS[@]}" \
-    --capture-range=nvtx \
-    --nvtx-capture="benchmark_generate" \
     --output="$OUTDIR/nanovllm" \
     python "$(dirname "$0")/nanovllm_bench.py"
 

@@ -83,6 +83,7 @@ def main():
     torch.cuda.synchronize()
     t_start = time.perf_counter()
 
+    torch.cuda.cudart().cudaProfilerStart()
     with nvtx_range("benchmark_generate"):
         with torch.inference_mode():
             with nvtx_range(f"hf_generate[batch={NUM_SEQS},max_new={max_new}]"):
@@ -93,6 +94,7 @@ def main():
                     do_sample=False,
                     use_cache=True,
                 )
+    torch.cuda.cudart().cudaProfilerStop()
 
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - t_start
