@@ -1,0 +1,33 @@
+# nano-vLLM profiling environment
+# Python 3.10, CUDA 12.1
+#
+# 설치 순서:
+#   1. conda create -n nanovllm python=3.10
+#   2. conda activate nanovllm
+#   3. pip install torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+#   4. pip install flash-attn==2.8.3.post1 --no-build-isolation
+#   5. pip install -r requirements.txt
+#
+# flash-attn은 빌드 시간이 길고 CUDA 버전에 민감하므로 nano-vllm보다 먼저 설치.
+# nano-vllm은 flash-attn이 설치된 상태에서 pip install 가능.
+
+# core
+torch==2.5.1+cu121
+triton==3.1.0
+numpy==2.2.6
+
+# model / tokenizer
+transformers==5.12.1
+huggingface_hub==1.21.0
+
+# paged attention kernel
+flash-attn==2.8.3.post1
+
+# nano-vLLM (requires flash-attn pre-installed)
+nano-vllm==0.2.0
+
+# profiling
+nvidia-nvtx-cu12==12.1.105
+
+# prefix cache hashing (used by nano-vLLM BlockManager)
+xxhash==3.7.1
