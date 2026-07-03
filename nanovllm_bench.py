@@ -126,7 +126,7 @@ def main():
 
     prompt_token_ids = [
         [randint(0, VOCAB_SIZE - 1) for _ in range(randint(32, MAX_INPUT))]
-        for _ in range(NUM_SEQS)
+        for _ in range(NUM_SEQS) # 벤치마크 입력값은 랜덤 토큰 값입니다.
     ]
     sampling_params = [
         SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(32, MAX_OUTPUT))

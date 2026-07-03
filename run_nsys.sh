@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Nsight Systems profiling — system-level timeline (CUDA kernels + NVTX ranges)
 #
-# Output: profiles/nsys/{baseline,nanovllm}.nsys-rep
-# Viewer:   nsys-ui profiles/nsys/nanovllm.nsys-rep
+# Output: profiles/nsys/{baseline,nanovllm}_YYYYMMDD_HHMMSS.nsys-rep
+# Viewer:   nsys-ui profiles/nsys/nanovllm_<date>.nsys-rep
 #
 # Key NVTX ranges to look for in the timeline:
 #   benchmark_generate        — entire timed region
@@ -20,33 +20,38 @@ NSYS=/usr/local/bin/nsys
 OUTDIR="$(dirname "$0")/profiles/nsys"
 mkdir -p "$OUTDIR"
 
+DATE=$(date +%Y%m%d_%H%M%S)
+
 COMMON_FLAGS=(
     --trace=cuda,nvtx,osrt
-    --cuda-memory-usage=true     # track GPU memory alloc/free over time
-    --backtrace=none             # skip CPU backtraces (much faster capture)
+    --gpu-metrics-devices=all
+    --cuda-memory-usage=true
+    --backtrace=none
     --force-overwrite=true
-    --capture-range=cudaProfilerApi   # gate: cudaProfilerStart/Stop in Python
-    --capture-range-end=stop          # stop collection when Stop is called
 )
 
 echo "================================================================"
 echo " [1/2] Profiling baseline (HF Transformers, no paged attention)"
 echo "================================================================"
+# capture-range 없음: model load부터 전체 캡처 → osrt cold-start overhead 방지
 $NSYS profile \
     "${COMMON_FLAGS[@]}" \
-    --output="$OUTDIR/baseline" \
+    --output="$OUTDIR/baseline_${DATE}" \
     python "$(dirname "$0")/baseline.py"
 
 echo ""
 echo "================================================================"
 echo " [2/2] Profiling nano-vLLM (paged attention + CUDA graphs)"
 echo "================================================================"
+# cudaProfilerApi로 게이팅: model load / CUDA graph capture 제외하고 inference만 캡처
 $NSYS profile \
     "${COMMON_FLAGS[@]}" \
-    --output="$OUTDIR/nanovllm" \
+    --capture-range=cudaProfilerApi \
+    --capture-range-end=stop \
+    --output="$OUTDIR/nanovllm_${DATE}" \
     python "$(dirname "$0")/nanovllm_bench.py"
 
 echo ""
 echo "Done. Open with:"
-echo "  nsys-ui $OUTDIR/baseline.nsys-rep"
-echo "  nsys-ui $OUTDIR/nanovllm.nsys-rep"
+echo "  nsys-ui $OUTDIR/baseline_${DATE}.nsys-rep"
+echo "  nsys-ui $OUTDIR/nanovllm_${DATE}.nsys-rep"
